@@ -178,7 +178,7 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === 'bereal') {
+  if (interaction.commandName === 'bereal' || interaction.commandName === 'proofoflife') {
     await interaction.reply({ content: 'Triggering BeReal ping now...', ephemeral: true });
     await sendPing();
   }
