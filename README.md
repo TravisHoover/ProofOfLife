@@ -44,14 +44,17 @@ cp .env.example .env
 Adjust `PING_WINDOW_START_HOUR`, `PING_WINDOW_END_HOUR`, `POST_TIME_LIMIT_MINUTES`, and `TIMEZONE`
 to taste.
 
-## 3. Install dependencies and register commands
+## 3. Install dependencies
 
 ```
 npm install
-npm run register
 ```
 
-You only need to re-run `npm run register` if you change the slash commands themselves.
+The bot registers its slash commands (`/bereal`, `/status`, `/streaks`) automatically every time it
+starts up, so there's no separate registration step. If `GUILD_ID` is set, commands appear in your
+server instantly; without it they're registered globally and can take up to an hour to show up.
+
+(`npm run register` still exists if you ever want to push the commands without starting the bot.)
 
 ## 4. Run it locally (to test)
 

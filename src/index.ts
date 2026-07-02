@@ -5,13 +5,17 @@ import {
   Partials,
   EmbedBuilder,
   TextChannel,
+  REST,
+  Routes,
 } from 'discord.js';
 import cron from 'node-cron';
 import * as db from './db';
 import type { Session, Post } from './db';
+import { commands } from './commands';
 
 const {
   DISCORD_TOKEN,
+  GUILD_ID,
   CHANNEL_ID,
   PING_WINDOW_START_HOUR = '11',
   PING_WINDOW_END_HOUR = '21',
@@ -205,8 +209,22 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+async function registerCommands(): Promise<void> {
+  const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN as string);
+  const appId = client.application!.id;
+  if (GUILD_ID) {
+    await rest.put(Routes.applicationGuildCommands(appId, GUILD_ID), { body: commands });
+    console.log(`Slash commands registered for guild ${GUILD_ID}.`);
+  } else {
+    await rest.put(Routes.applicationCommands(appId), { body: commands });
+    console.log('Slash commands registered globally (GUILD_ID not set — may take up to an hour to appear).');
+  }
+}
+
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user!.tag}`);
+
+  registerCommands().catch((err) => console.error('Failed to register slash commands:', err));
 
   const session = db.getTodaySession();
   if (session && !session.revealed) {
