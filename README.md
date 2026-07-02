@@ -110,8 +110,8 @@ npm test
 ```
 
 Runs the unit tests (streak engine, timezone math, and database migrations) with Node's built-in
-test runner — no extra dependencies. CI runs the same build and tests on every push and pull request,
-via both GitHub Actions (`.github/workflows/ci.yml`) and Travis CI (`.travis.yml`).
+test runner — no extra dependencies. CI runs the same build and tests on every push and pull request
+via GitHub Actions (`.github/workflows/ci.yml`).
 
 ## Notes
 
