@@ -13,4 +13,10 @@ export const commands = [
   new SlashCommandBuilder()
     .setName('streaks')
     .setDescription('Show the streak leaderboard'),
+  new SlashCommandBuilder()
+    .setName('wins')
+    .setDescription('Show the photo-of-the-day win leaderboard'),
+  new SlashCommandBuilder()
+    .setName('vacation')
+    .setDescription('Toggle vacation mode — pauses your streak while you are away'),
 ].map((c) => c.toJSON());
