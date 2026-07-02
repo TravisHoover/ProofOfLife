@@ -1,5 +1,5 @@
 {
-  "name": "bereal-discord-bot",
+  "name": "proof-of-life-discord-bot",
   "version": "1.0.0",
   "description": "A BeReal-style daily photo check-in bot for Discord friend groups",
   "main": "dist/index.js",
@@ -16,7 +16,7 @@
     "node-cron": "^3.0.3"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
