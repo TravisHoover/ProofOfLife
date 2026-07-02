@@ -1,0 +1,10 @@
+language: node_js
+node_js:
+  - 22
+dist: jammy
+cache: npm
+install:
+  - npm ci
+script:
+  - npm run build
+  - npm test
