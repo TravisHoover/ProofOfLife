@@ -1,22 +1,26 @@
-require('dotenv').config();
-const {
+import 'dotenv/config';
+import {
   Client,
   GatewayIntentBits,
   Partials,
   EmbedBuilder,
-  AttachmentBuilder,
-} = require('discord.js');
-const cron = require('node-cron');
-const db = require('./db');
+  TextChannel,
+} from 'discord.js';
+import cron from 'node-cron';
+import * as db from './db';
+import type { Session, Post } from './db';
 
 const {
   DISCORD_TOKEN,
   CHANNEL_ID,
-  PING_WINDOW_START_HOUR = 11,
-  PING_WINDOW_END_HOUR = 21,
-  POST_TIME_LIMIT_MINUTES = 120,
+  PING_WINDOW_START_HOUR = '11',
+  PING_WINDOW_END_HOUR = '21',
+  POST_TIME_LIMIT_MINUTES = '120',
   TIMEZONE = 'America/Chicago',
 } = process.env;
+
+if (!DISCORD_TOKEN) throw new Error('Missing DISCORD_TOKEN');
+if (!CHANNEL_ID) throw new Error('Missing CHANNEL_ID');
 
 const client = new Client({
   intents: [
@@ -27,15 +31,14 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message],
 });
 
-// Tracks the currently active session's deadline timer so we can cancel/reschedule if needed
-let activeDeadlineTimeout = null;
+let activeDeadlineTimeout: ReturnType<typeof setTimeout> | null = null;
 
-function todayDateString() {
+function todayDateString(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function sendPing() {
-  const channel = await client.channels.fetch(CHANNEL_ID);
+async function sendPing(): Promise<void> {
+  const channel = await client.channels.fetch(CHANNEL_ID as string) as TextChannel | null;
   if (!channel) {
     console.error('Could not find CHANNEL_ID channel.');
     return;
@@ -43,7 +46,6 @@ async function sendPing() {
 
   const date = todayDateString();
 
-  // Don't double-ping if a session already exists for today (e.g. bot restarted)
   const existing = db.getSessionByDate(date);
   if (existing) {
     console.log(`Session for ${date} already exists, skipping ping.`);
@@ -73,7 +75,7 @@ async function sendPing() {
   scheduleDeadline(sessionId, channel, deadline);
 }
 
-function scheduleDeadline(sessionId, channel, deadline) {
+function scheduleDeadline(sessionId: number, channel: TextChannel, deadline: Date): void {
   const msUntilDeadline = deadline.getTime() - Date.now();
   if (activeDeadlineTimeout) clearTimeout(activeDeadlineTimeout);
 
@@ -82,8 +84,8 @@ function scheduleDeadline(sessionId, channel, deadline) {
   }, Math.max(msUntilDeadline, 0));
 }
 
-async function revealSession(sessionId, channel) {
-  const posts = db.getPostsForSession(sessionId);
+async function revealSession(sessionId: number, channel: TextChannel): Promise<void> {
+  const posts: Post[] = db.getPostsForSession(sessionId);
   db.markRevealed(sessionId);
 
   if (posts.length === 0) {
@@ -113,16 +115,15 @@ async function revealSession(sessionId, channel) {
   }
 }
 
-function scheduleNextRandomPing() {
-  // Runs once a minute, checks if "now" matches today's randomly chosen ping time
+function scheduleNextRandomPing(): void {
   const startHour = Number(PING_WINDOW_START_HOUR);
   const endHour = Number(PING_WINDOW_END_HOUR);
 
-  let scheduledHour = null;
-  let scheduledMinute = null;
-  let scheduledDate = null;
+  let scheduledHour: number;
+  let scheduledMinute: number;
+  let scheduledDate: string;
 
-  function rollNewTime() {
+  function rollNewTime(): void {
     scheduledHour = startHour + Math.floor(Math.random() * (endHour - startHour));
     scheduledMinute = Math.floor(Math.random() * 60);
     scheduledDate = todayDateString();
@@ -135,12 +136,11 @@ function scheduleNextRandomPing() {
     const now = new Date();
     const currentDate = todayDateString();
 
-    // New day -> roll a new random time
-    if (currentDate !== scheduledDate) {
+    if (currentDate !== scheduledDate!) {
       rollNewTime();
     }
 
-    if (now.getHours() === scheduledHour && now.getMinutes() === scheduledMinute) {
+    if (now.getHours() === scheduledHour! && now.getMinutes() === scheduledMinute!) {
       await sendPing();
     }
   }, { timezone: TIMEZONE });
@@ -151,14 +151,14 @@ client.on('messageCreate', async (message) => {
   if (message.channelId !== CHANNEL_ID) return;
   if (message.attachments.size === 0) return;
 
-  const session = db.getTodaySession();
-  if (!session || session.revealed) return; // no active session, or already revealed
+  const session: Session | undefined = db.getTodaySession();
+  if (!session || session.revealed) return;
 
   const attachment = message.attachments.first();
-  if (!attachment.contentType || !attachment.contentType.startsWith('image/')) return;
+  if (!attachment || !attachment.contentType?.startsWith('image/')) return;
 
   if (db.hasPosted(session.id, message.author.id)) {
-    await message.react('✅'); // already counted, just acknowledge
+    await message.react('✅');
     return;
   }
 
@@ -170,9 +170,6 @@ client.on('messageCreate', async (message) => {
   db.updateStreak(message.author.id, message.author.username, todayDateString(), isLate);
 
   await message.react(isLate ? '🐢' : '📸');
-
-  // If everyone who's ever posted before has posted today, you could auto-reveal early.
-  // Kept simple here: reveal happens at the deadline via scheduleDeadline.
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -209,13 +206,12 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`Logged in as ${client.user!.tag}`);
 
-  // On startup, if today's session exists but hasn't been revealed, re-arm its deadline timer
   const session = db.getTodaySession();
   if (session && !session.revealed) {
-    client.channels.fetch(CHANNEL_ID).then((channel) => {
-      scheduleDeadline(session.id, channel, new Date(session.deadline));
+    client.channels.fetch(CHANNEL_ID as string).then((channel) => {
+      scheduleDeadline(session.id, channel as TextChannel, new Date(session.deadline));
     });
   }
 
@@ -223,3 +219,4 @@ client.once('ready', () => {
 });
 
 client.login(DISCORD_TOKEN);
+

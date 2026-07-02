@@ -1,5 +1,10 @@
-require('dotenv').config();
-const { REST, Routes, SlashCommandBuilder } = require('discord.js');
+import 'dotenv/config';
+import { REST, Routes, SlashCommandBuilder } from 'discord.js';
+
+const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID } = process.env;
+if (!DISCORD_TOKEN) throw new Error('Missing DISCORD_TOKEN');
+if (!CLIENT_ID) throw new Error('Missing CLIENT_ID');
+if (!GUILD_ID) throw new Error('Missing GUILD_ID');
 
 const commands = [
   new SlashCommandBuilder()
@@ -16,13 +21,13 @@ const commands = [
     .setDescription('Show the streak leaderboard'),
 ].map((c) => c.toJSON());
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
 
 (async () => {
   try {
     console.log('Registering slash commands...');
     await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
     console.log('Slash commands registered successfully.');
@@ -30,3 +35,4 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     console.error('Failed to register commands:', err);
   }
 })();
+

@@ -2,19 +2,27 @@
   "name": "bereal-discord-bot",
   "version": "1.0.0",
   "description": "A BeReal-style daily photo check-in bot for Discord friend groups",
-  "main": "index.js",
+  "main": "dist/index.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js",
-    "register": "node register-commands.js"
+    "build": "tsc",
+    "start": "npm run build && node dist/index.js",
+    "register": "npm run build && node dist/register-commands.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "node-cron": "^3.0.3",
     "better-sqlite3": "^11.3.0",
-    "dotenv": "^16.4.5"
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.1.0",
+    "@types/node-cron": "^3.0.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
   }
 }

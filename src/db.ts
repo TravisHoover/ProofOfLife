@@ -1,8 +1,8 @@
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
 
-const dataDir = path.join(__dirname, 'data');
+const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
@@ -13,10 +13,10 @@ db.pragma('journal_mode = WAL');
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL UNIQUE,         -- YYYY-MM-DD
-    ping_time TEXT NOT NULL,           -- ISO timestamp the ping fired
-    deadline TEXT NOT NULL,            -- ISO timestamp posts are due by
-    message_id TEXT,                   -- the ping message, so we can reply/thread
+    date TEXT NOT NULL UNIQUE,
+    ping_time TEXT NOT NULL,
+    deadline TEXT NOT NULL,
+    message_id TEXT,
     revealed INTEGER NOT NULL DEFAULT 0
   );
 
@@ -41,34 +41,68 @@ db.exec(`
   );
 `);
 
-function createSession(date, pingTime, deadline) {
-  const stmt = db.prepare(`INSERT INTO sessions (date, ping_time, deadline) VALUES (?, ?, ?)`);
-  const result = stmt.run(date, pingTime, deadline);
-  return result.lastInsertRowid;
+export interface Session {
+  id: number;
+  date: string;
+  ping_time: string;
+  deadline: string;
+  message_id: string | null;
+  revealed: number;
 }
 
-function setSessionMessageId(sessionId, messageId) {
+export interface Post {
+  id: number;
+  session_id: number;
+  user_id: string;
+  username: string;
+  image_url: string;
+  posted_at: string;
+  is_late: number;
+}
+
+export interface Streak {
+  user_id: string;
+  username: string;
+  current_streak: number;
+  longest_streak: number;
+  last_post_date: string | null;
+}
+
+export function createSession(date: string, pingTime: string, deadline: string): number {
+  const stmt = db.prepare(`INSERT INTO sessions (date, ping_time, deadline) VALUES (?, ?, ?)`);
+  const result = stmt.run(date, pingTime, deadline);
+  return result.lastInsertRowid as number;
+}
+
+export function setSessionMessageId(sessionId: number, messageId: string): void {
   db.prepare(`UPDATE sessions SET message_id = ? WHERE id = ?`).run(messageId, sessionId);
 }
 
-function getSessionByDate(date) {
-  return db.prepare(`SELECT * FROM sessions WHERE date = ?`).get(date);
+export function getSessionByDate(date: string): Session | undefined {
+  return db.prepare(`SELECT * FROM sessions WHERE date = ?`).get(date) as Session | undefined;
 }
 
-function getTodaySession() {
+export function getTodaySession(): Session | undefined {
   const today = new Date().toISOString().slice(0, 10);
   return getSessionByDate(today);
 }
 
-function getLatestSession() {
-  return db.prepare(`SELECT * FROM sessions ORDER BY id DESC LIMIT 1`).get();
+export function getLatestSession(): Session | undefined {
+  return db.prepare(`SELECT * FROM sessions ORDER BY id DESC LIMIT 1`).get() as Session | undefined;
 }
 
-function markRevealed(sessionId) {
+export function markRevealed(sessionId: number): void {
   db.prepare(`UPDATE sessions SET revealed = 1 WHERE id = ?`).run(sessionId);
 }
 
-function addPost(sessionId, userId, username, imageUrl, postedAt, isLate) {
+export function addPost(
+  sessionId: number,
+  userId: string,
+  username: string,
+  imageUrl: string,
+  postedAt: string,
+  isLate: boolean,
+): boolean {
   const stmt = db.prepare(`
     INSERT INTO posts (session_id, user_id, username, image_url, posted_at, is_late)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -78,23 +112,23 @@ function addPost(sessionId, userId, username, imageUrl, postedAt, isLate) {
   return result.changes > 0;
 }
 
-function hasPosted(sessionId, userId) {
+export function hasPosted(sessionId: number, userId: string): boolean {
   return !!db.prepare(`SELECT 1 FROM posts WHERE session_id = ? AND user_id = ?`).get(sessionId, userId);
 }
 
-function getPostsForSession(sessionId) {
-  return db.prepare(`SELECT * FROM posts WHERE session_id = ? ORDER BY posted_at ASC`).all(sessionId);
+export function getPostsForSession(sessionId: number): Post[] {
+  return db.prepare(`SELECT * FROM posts WHERE session_id = ? ORDER BY posted_at ASC`).all(sessionId) as Post[];
 }
 
-function updateStreak(userId, username, date, isLate) {
-  const row = db.prepare(`SELECT * FROM streaks WHERE user_id = ?`).get(userId);
+export function updateStreak(userId: string, username: string, date: string, isLate: boolean): void {
+  const row = db.prepare(`SELECT * FROM streaks WHERE user_id = ?`).get(userId) as Streak | undefined;
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
   let current = 1;
   if (row && row.last_post_date === yesterday && !isLate) {
     current = row.current_streak + 1;
   } else if (isLate) {
-    current = 0; // late posts break the streak, mirrors BeReal
+    current = 0;
   }
 
   const longest = row ? Math.max(row.longest_streak, current) : current;
@@ -110,20 +144,7 @@ function updateStreak(userId, username, date, isLate) {
   `).run(userId, username, current, longest, date);
 }
 
-function getLeaderboard() {
-  return db.prepare(`SELECT * FROM streaks ORDER BY current_streak DESC, longest_streak DESC`).all();
+export function getLeaderboard(): Streak[] {
+  return db.prepare(`SELECT * FROM streaks ORDER BY current_streak DESC, longest_streak DESC`).all() as Streak[];
 }
 
-module.exports = {
-  createSession,
-  setSessionMessageId,
-  getSessionByDate,
-  getTodaySession,
-  getLatestSession,
-  markRevealed,
-  addPost,
-  hasPosted,
-  getPostsForSession,
-  updateStreak,
-  getLeaderboard,
-};
