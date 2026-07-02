@@ -103,6 +103,16 @@ something small like `2` while testing).
 
 That's it — the bot now runs continuously and will ping your server daily at a random time.
 
+## Tests
+
+```
+npm test
+```
+
+Runs the unit tests (streak engine, timezone math, and database migrations) with Node's built-in
+test runner — no extra dependencies. CI runs the same build and tests on every push and pull request
+via GitHub Actions (`.github/workflows/ci.yml`).
+
 ## Notes
 
 - The bot stores everything in a local SQLite file (`data/bereal.db`) plus saved photos in
