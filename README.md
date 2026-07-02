@@ -15,8 +15,9 @@ hidden until the deadline, then everything reveals at once. Tracks streaks too.
 - Fifteen minutes before the deadline (configurable), the bot reminds whoever hasn't posted yet.
 - The reveal happens when the time limit expires — or **early, the moment everyone has posted** (when
   `BEREAL_ROLE_ID` defines who "everyone" is).
-- After the reveal, everyone votes for the **photo of the day** by reacting 🔥; the winner is announced
-  when voting closes and racks up wins on a leaderboard.
+- Optionally, after the reveal everyone votes for the **photo of the day** by reacting 🔥; the winner
+  is announced when voting closes and racks up wins on a leaderboard. Voting is off until you set
+  `VOTING_MINUTES`.
 - Streaks work like Duolingo: on-time posts extend your streak, and every 7-day run earns a **streak
   freeze** (max 2 banked) that automatically saves your streak on a missed or late day. Going away?
   `/vacation` pauses your streak entirely.
@@ -60,8 +61,8 @@ cp .env.example .env
 ```
 
 Adjust `PING_WINDOW_START_HOUR`, `PING_WINDOW_END_HOUR`, `POST_TIME_LIMIT_MINUTES`,
-`REMINDER_MINUTES_BEFORE`, `VOTING_MINUTES`, and `TIMEZONE` to taste. All times are interpreted in
-`TIMEZONE`.
+`REMINDER_MINUTES_BEFORE`, and `TIMEZONE` to taste. All times are interpreted in `TIMEZONE`.
+Photo-of-the-day voting stays off until you set `VOTING_MINUTES` (e.g. `60`).
 
 ## 3. Install dependencies
 

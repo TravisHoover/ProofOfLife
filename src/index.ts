@@ -28,7 +28,7 @@ const {
   PING_WINDOW_END_HOUR = '21',
   POST_TIME_LIMIT_MINUTES = '120',
   REMINDER_MINUTES_BEFORE = '15',
-  VOTING_MINUTES = '60',
+  VOTING_MINUTES,
   TIMEZONE = 'America/Chicago',
 } = process.env;
 
@@ -36,6 +36,8 @@ if (!DISCORD_TOKEN) throw new Error('Missing DISCORD_TOKEN');
 if (!CHANNEL_ID) throw new Error('Missing CHANNEL_ID');
 
 const VOTE_EMOJI = '🔥';
+// Photo-of-the-day voting is opt-in: it only runs when VOTING_MINUTES is set.
+const votingMinutes = Number(VOTING_MINUTES) > 0 ? Number(VOTING_MINUTES) : 0;
 
 // GuildMembers is a privileged intent, so only request it when a roster role is
 // configured (it must also be enabled in the Discord Developer Portal).
@@ -230,7 +232,7 @@ async function revealSession(sessionId: number, channel: TextChannel): Promise<v
     }
   }
 
-  if (posts.length >= 2) {
+  if (votingMinutes > 0 && posts.length >= 2) {
     const revealed = db.getPostsForSession(sessionId).filter((p) => p.reveal_message_id);
     for (const post of revealed) {
       try {
@@ -241,9 +243,9 @@ async function revealSession(sessionId: number, channel: TextChannel): Promise<v
       }
     }
     await channel.send(
-      `🗳️ Vote for the photo of the day by reacting ${VOTE_EMOJI} — voting closes in **${VOTING_MINUTES} minutes**!`
+      `🗳️ Vote for the photo of the day by reacting ${VOTE_EMOJI} — voting closes in **${votingMinutes} minutes**!`
     );
-    scheduleVotingClose(sessionId, channel, Date.now() + Number(VOTING_MINUTES) * 60000);
+    scheduleVotingClose(sessionId, channel, Date.now() + votingMinutes * 60000);
   } else {
     db.markVotingClosed(sessionId);
   }
@@ -552,7 +554,11 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.commandName === 'wins') {
     const board = db.getWinsLeaderboard();
     if (board.length === 0) {
-      await interaction.reply('No photo-of-the-day wins yet — vote with 🔥 after a reveal!');
+      await interaction.reply(
+        votingMinutes > 0
+          ? 'No photo-of-the-day wins yet — vote with 🔥 after a reveal!'
+          : 'Photo-of-the-day voting is turned off — set VOTING_MINUTES to enable it.'
+      );
       return;
     }
     const lines = board
@@ -601,9 +607,9 @@ client.once('clientReady', () => {
       if (!session.revealed) {
         scheduleDeadline(session.id, channel, new Date(session.deadline));
         scheduleReminder(session, channel);
-      } else if (!session.voting_closed) {
+      } else if (!session.voting_closed && votingMinutes > 0) {
         const revealedAt = session.revealed_at ? new Date(session.revealed_at).getTime() : Date.now();
-        scheduleVotingClose(session.id, channel, revealedAt + Number(VOTING_MINUTES) * 60000);
+        scheduleVotingClose(session.id, channel, revealedAt + votingMinutes * 60000);
       }
     });
   }
