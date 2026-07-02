@@ -38,9 +38,9 @@ leaderboard · `/wins` photo-of-the-day wins · `/vacation` pause/resume your st
    **Server Members Intent** (needed to see who has the role).
 4. In the left sidebar, go to **OAuth2 → URL Generator**:
    - Scopes: check `bot` and `applications.commands`
-   - Bot Permissions: check `Send Messages`, `Read Message History`, `Attach Files`, `Mention Everyone`,
-     `Use Slash Commands`, `Add Reactions`, and `Manage Messages` (needed to delete photos so they stay
-     hidden until the reveal)
+   - Bot Permissions: check `View Channels`, `Send Messages`, `Embed Links`, `Read Message History`,
+     `Attach Files`, `Mention Everyone`, `Use Slash Commands`, `Add Reactions`, and `Manage Messages`
+     (needed to delete photos so they stay hidden until the reveal)
    - Copy the generated URL at the bottom, open it in your browser, and add the bot to your server.
 5. Grab your **Application/Client ID** from the **General Information** page → this is `CLIENT_ID`.
 6. Get your **Guild ID** (server ID): in Discord, enable Developer Mode (User Settings → Advanced),
