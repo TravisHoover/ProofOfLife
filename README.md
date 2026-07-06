@@ -15,6 +15,9 @@ hidden until the deadline, then everything reveals at once. Tracks streaks too.
 - Fifteen minutes before the deadline (configurable), the bot reminds whoever hasn't posted yet.
 - The reveal happens when the time limit expires — or **early, the moment everyone has posted** (when
   `BEREAL_ROLE_ID` defines who "everyone" is).
+- Missed the reveal? Photos posted later the same day still count: they're posted to the channel
+  immediately, flagged **(late)**. A late day costs the same as a missed day streak-wise (a banked
+  freeze, or the streak).
 - Optionally, after the reveal everyone votes for the **photo of the day** by reacting 🔥; the winner
   is announced when voting closes and racks up wins on a leaderboard. Voting is off until you set
   `VOTING_MINUTES`.

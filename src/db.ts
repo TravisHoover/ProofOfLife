@@ -161,6 +161,12 @@ export function addPost(
   return result.changes > 0;
 }
 
+export function getPost(sessionId: number, userId: string): Post | undefined {
+  return db
+    .prepare(`SELECT * FROM posts WHERE session_id = ? AND user_id = ?`)
+    .get(sessionId, userId) as Post | undefined;
+}
+
 export function hasPosted(sessionId: number, userId: string): boolean {
   return !!db.prepare(`SELECT 1 FROM posts WHERE session_id = ? AND user_id = ?`).get(sessionId, userId);
 }
