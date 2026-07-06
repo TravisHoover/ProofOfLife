@@ -87,6 +87,9 @@ test('posts store captions and image paths, and duplicates are ignored', () => {
   const updated = db.getPostsForSession(id)[0];
   assert.equal(updated.reveal_message_id, 'msg123');
   assert.equal(updated.votes, 4);
+
+  assert.equal(db.getPost(id, 'u1')!.id, posts[0].id);
+  assert.equal(db.getPost(id, 'nobody'), undefined);
 });
 
 test('getSessionsSince and getPostsForSessionIds cover the recap window', () => {

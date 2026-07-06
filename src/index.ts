@@ -431,7 +431,7 @@ client.on('messageCreate', async (message) => {
   if (message.attachments.size === 0) return;
 
   const session: Session | undefined = db.getSessionByDate(todayDateString());
-  if (!session || session.revealed) return;
+  if (!session) return;
 
   const attachment = message.attachments.first();
   if (!attachment || !attachment.contentType?.startsWith('image/')) return;
@@ -442,7 +442,9 @@ client.on('messageCreate', async (message) => {
   }
 
   const now = new Date();
-  const isLate = now > new Date(session.deadline);
+  // Anything after the reveal is late by definition; before it, compare
+  // against the deadline (they can differ when the reveal fires early).
+  const isLate = session.revealed ? true : now > new Date(session.deadline);
   const caption = message.content.trim() || null;
 
   // Download the image so it can stay hidden (the original message gets
@@ -471,6 +473,36 @@ client.on('messageCreate', async (message) => {
     imagePath,
   );
 
+  const channel = message.channel as TextChannel;
+
+  // After the reveal there's nothing to hide: repost the photo immediately,
+  // flagged as late. Streaks were already settled at reveal time (a missed
+  // day and a late post cost the same), so they're left untouched here.
+  if (session.revealed) {
+    let reposted = false;
+    if (imagePath) {
+      try {
+        await message.delete();
+        const capLine = caption ? `\n> ${caption.slice(0, 1500)}` : '';
+        const msg = await channel.send({
+          content: `**${message.author.username} (late)**${capLine}`,
+          files: [imagePath],
+          allowedMentions: { parse: [] },
+        });
+        const saved = db.getPost(session.id, message.author.id);
+        if (saved) db.setRevealMessageId(saved.id, msg.id);
+        if (votingMinutes > 0 && !session.voting_closed) {
+          await msg.react(VOTE_EMOJI);
+        }
+        reposted = true;
+      } catch (err) {
+        console.warn('Could not repost the late photo, leaving the original message:', err);
+      }
+    }
+    if (!reposted) await message.react('🐢');
+    return;
+  }
+
   // Hide the photo until the reveal. Only delete if we have our own copy.
   let hidden = false;
   if (imagePath) {
@@ -482,7 +514,6 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  const channel = message.channel as TextChannel;
   if (hidden) {
     await channel.send(
       `📸 **${message.author.username}** just posted their BeReal${isLate ? ' (late)' : ''} — hidden until the reveal!`
