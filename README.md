@@ -25,7 +25,8 @@ hidden until the deadline, then everything reveals at once. Tracks streaks too.
   freeze** (max 2 banked) that automatically saves your streak on a missed or late day. Going away?
   `/vacation` pauses your streak entirely.
 - Every Sunday evening the bot posts a **weekly recap**: perfect posters, the "fashionably late" award,
-  hottest streak, a **collage of the week's photos**, and the most-voted photo of the week.
+  hottest streak, a **collage of the week's most-reacted photos** (any emoji reaction on a photo counts
+  toward its collage spot), and the most-voted photo of the week.
 - **Milestones get celebrated**: streak landmarks (10, 30, 50, 100… days), post counts (10th, 50th,
   100th…), and photo-of-the-day win counts get a shout-out at the reveal.
 - **Throwback Thursday**: every Thursday's reveal ends with the photos from four weeks ago.

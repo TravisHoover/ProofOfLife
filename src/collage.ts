@@ -3,6 +3,12 @@ import sharp from 'sharp';
 const CELL = 400;
 const MAX_TILES = 12;
 
+// Orders candidate photos by reaction score (highest first). The sort is
+// stable, so equal scores keep their original (chronological) order.
+export function pickCollagePhotos(candidates: { path: string; score: number }[]): string[] {
+  return [...candidates].sort((a, b) => b.score - a.score).map((c) => c.path);
+}
+
 // Composites up to MAX_TILES images into a near-square grid. Returns false
 // when there aren't enough images to make a grid worthwhile.
 export async function buildCollage(imagePaths: string[], outPath: string): Promise<boolean> {

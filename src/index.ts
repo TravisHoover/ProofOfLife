@@ -19,7 +19,7 @@ import { commands } from './commands';
 import { tzNow as tzNowIn, dateStringDaysBefore, weekdayOf } from './time';
 import { processStreaksAtReveal } from './streaks';
 import { hitMilestone, STREAK_MILESTONES, POST_MILESTONES, WIN_MILESTONES } from './milestones';
-import { buildCollage } from './collage';
+import { buildCollage, pickCollagePhotos } from './collage';
 
 const {
   DISCORD_TOKEN,
@@ -410,9 +410,23 @@ async function sendWeeklyRecap(): Promise<void> {
   await channel.send({ embeds: [embed] });
 
   try {
-    const imagePaths = posts
-      .filter((p) => p.image_path && fs.existsSync(p.image_path))
-      .map((p) => p.image_path!);
+    // Rank the week's photos by how many emoji reactions (any emoji, from
+    // anyone but the bot) their reveal messages collected.
+    const candidates: { path: string; score: number }[] = [];
+    for (const post of posts) {
+      if (!post.image_path || !fs.existsSync(post.image_path)) continue;
+      let score = 0;
+      if (post.reveal_message_id) {
+        try {
+          const msg = await channel.messages.fetch(post.reveal_message_id);
+          score = msg.reactions.cache.reduce((sum, r) => sum + r.count - (r.me ? 1 : 0), 0);
+        } catch {
+          // Message gone or unreachable — keep the photo with a zero score.
+        }
+      }
+      candidates.push({ path: post.image_path, score });
+    }
+    const imagePaths = pickCollagePhotos(candidates);
     const collagePath = path.join(db.photosDir, `collage-${sessions[sessions.length - 1].date}.jpg`);
     if (await buildCollage(imagePaths, collagePath)) {
       await channel.send({ content: '🖼️ **This week in BeReals:**', files: [collagePath] });

@@ -4,7 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import sharp from 'sharp';
-import { buildCollage } from '../src/collage';
+import { buildCollage, pickCollagePhotos } from '../src/collage';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bereal-collage-'));
 
@@ -32,6 +32,18 @@ test('buildCollage lays out a near-square grid of cover-fitted tiles', async () 
   assert.equal(meta.width, 800);
   assert.equal(meta.height, 800);
   assert.equal(meta.format, 'jpeg');
+});
+
+test('pickCollagePhotos ranks by reaction score with chronological tiebreak', () => {
+  const picked = pickCollagePhotos([
+    { path: 'mon.jpg', score: 1 },
+    { path: 'tue.jpg', score: 5 },
+    { path: 'wed.jpg', score: 0 },
+    { path: 'thu.jpg', score: 5 },
+    { path: 'fri.jpg', score: 0 },
+  ]);
+  // Highest score first; ties (tue/thu and wed/fri) keep chronological order.
+  assert.deepEqual(picked, ['tue.jpg', 'thu.jpg', 'mon.jpg', 'wed.jpg', 'fri.jpg']);
 });
 
 test('buildCollage declines with fewer than two images', async () => {
