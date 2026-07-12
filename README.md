@@ -25,10 +25,14 @@ hidden until the deadline, then everything reveals at once. Tracks streaks too.
   freeze** (max 2 banked) that automatically saves your streak on a missed or late day. Going away?
   `/vacation` pauses your streak entirely.
 - Every Sunday evening the bot posts a **weekly recap**: perfect posters, the "fashionably late" award,
-  hottest streak, and the most-voted photo of the week.
+  hottest streak, a **collage of the week's photos**, and the most-voted photo of the week.
+- **Milestones get celebrated**: streak landmarks (10, 30, 50, 100… days), post counts (10th, 50th,
+  100th…), and photo-of-the-day win counts get a shout-out at the reveal.
+- **Throwback Thursday**: every Thursday's reveal ends with the photos from four weeks ago.
 
 **Commands:** `/bereal` fire the ping early · `/status` who's posted today · `/streaks` streak
-leaderboard · `/wins` photo-of-the-day wins · `/vacation` pause/resume your streak
+leaderboard · `/wins` photo-of-the-day wins · `/me` your personal stats and month-at-a-glance ·
+`/vacation` pause/resume your streak
 
 ## 1. Create the Discord bot
 
@@ -73,7 +77,7 @@ Photo-of-the-day voting stays off until you set `VOTING_MINUTES` (e.g. `60`).
 npm install
 ```
 
-The bot registers its slash commands (`/bereal`, `/status`, `/streaks`, `/wins`, `/vacation`)
+The bot registers its slash commands (`/bereal`, `/status`, `/streaks`, `/wins`, `/me`, `/vacation`)
 automatically every time it starts up, so there's no separate registration step. If `GUILD_ID` is set, commands appear in your
 server instantly; without it they're registered globally and can take up to an hour to show up.
 
@@ -119,7 +123,8 @@ via GitHub Actions (`.github/workflows/ci.yml`).
 ## Notes
 
 - The bot stores everything in a local SQLite file (`data/bereal.db`) plus saved photos in
-  `data/photos/` — no external database needed. Photos are cleaned up after 14 days.
+  `data/photos/` — no external database needed. Photos are cleaned up after 60 days (kept long
+  enough for Throwback Thursday).
 - If the bot restarts mid-day after it already pinged, it won't double-ping (sessions are keyed by
   date), and it re-arms the deadline, reminder, and vote-closing timers for the existing session on
   startup.

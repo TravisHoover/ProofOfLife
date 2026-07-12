@@ -19,4 +19,7 @@ export const commands = [
   new SlashCommandBuilder()
     .setName('vacation')
     .setDescription('Toggle vacation mode — pauses your streak while you are away'),
+  new SlashCommandBuilder()
+    .setName('me')
+    .setDescription('Your personal BeReal stats: streak, wins, on-time rate, and this month at a glance'),
 ].map((c) => c.toJSON());

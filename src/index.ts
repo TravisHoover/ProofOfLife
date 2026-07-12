@@ -16,8 +16,10 @@ import path from 'path';
 import * as db from './db';
 import type { Session, Post } from './db';
 import { commands } from './commands';
-import { tzNow as tzNowIn, dateStringDaysBefore } from './time';
+import { tzNow as tzNowIn, dateStringDaysBefore, weekdayOf } from './time';
 import { processStreaksAtReveal } from './streaks';
+import { hitMilestone, STREAK_MILESTONES, POST_MILESTONES, WIN_MILESTONES } from './milestones';
+import { buildCollage } from './collage';
 
 const {
   DISCORD_TOKEN,
@@ -232,6 +234,21 @@ async function revealSession(sessionId: number, channel: TextChannel): Promise<v
     }
   }
 
+  const celebrations: string[] = [];
+  for (const post of posts) {
+    const streak = db.getStreak(post.user_id);
+    if (streak && !post.is_late && hitMilestone(streak.current_streak, STREAK_MILESTONES)) {
+      celebrations.push(`🔥 **${post.username}** hit a **${streak.current_streak}-day streak**!`);
+    }
+    const count = db.getPostCount(post.user_id);
+    if (hitMilestone(count, POST_MILESTONES)) {
+      celebrations.push(`📸 **${post.username}** just posted their **${count}th BeReal**!`);
+    }
+  }
+  if (celebrations.length > 0) {
+    await channel.send(`🎉 ${celebrations.join('\n')}`);
+  }
+
   if (votingMinutes > 0 && posts.length >= 2) {
     const revealed = db.getPostsForSession(sessionId).filter((p) => p.reveal_message_id);
     for (const post of revealed) {
@@ -248,6 +265,42 @@ async function revealSession(sessionId: number, channel: TextChannel): Promise<v
     scheduleVotingClose(sessionId, channel, Date.now() + votingMinutes * 60000);
   } else {
     db.markVotingClosed(sessionId);
+  }
+
+  try {
+    await maybeSendThrowback(channel, session.date);
+  } catch (err) {
+    console.error('Throwback failed:', err);
+  }
+}
+
+// --- Throwback Thursday --------------------------------------------------------
+
+// On Thursdays, resurface the photos from four weeks ago after the reveal.
+async function maybeSendThrowback(channel: TextChannel, date: string): Promise<void> {
+  if (weekdayOf(date) !== 4) return;
+
+  const oldDate = dateStringDaysBefore(28, date);
+  const oldSession = db.getSessionByDate(oldDate);
+  if (!oldSession) return;
+
+  const oldPosts = db
+    .getPostsForSession(oldSession.id)
+    .filter((p) => p.image_path && fs.existsSync(p.image_path));
+  if (oldPosts.length === 0) return;
+
+  await channel.send(`🕰️ **Throwback Thursday** — your BeReals from four weeks ago (${oldDate}):`);
+  for (const post of oldPosts) {
+    const caption = post.caption ? `\n> ${post.caption.slice(0, 1500)}` : '';
+    try {
+      await channel.send({
+        content: `**${post.username}**${caption}`,
+        files: [post.image_path!],
+        allowedMentions: { parse: [] },
+      });
+    } catch (err) {
+      console.error(`Failed to post ${post.username}'s throwback:`, err);
+    }
   }
 }
 
@@ -300,6 +353,13 @@ async function closeVoting(sessionId: number, channel: TextChannel): Promise<voi
   await channel.send(
     `🏆 Photo of the day goes to ${names} with ${max} vote${max === 1 ? '' : 's'}! See /wins for the leaderboard.`
   );
+
+  for (const w of winners) {
+    const wins = db.getStreak(w.post.user_id)?.wins ?? 0;
+    if (hitMilestone(wins, WIN_MILESTONES)) {
+      await channel.send(`🎉 That's **${w.post.username}**'s **${wins}th photo-of-the-day win**!`);
+    }
+  }
 }
 
 // --- Weekly recap -------------------------------------------------------------
@@ -348,6 +408,18 @@ async function sendWeeklyRecap(): Promise<void> {
     .setTimestamp();
 
   await channel.send({ embeds: [embed] });
+
+  try {
+    const imagePaths = posts
+      .filter((p) => p.image_path && fs.existsSync(p.image_path))
+      .map((p) => p.image_path!);
+    const collagePath = path.join(db.photosDir, `collage-${sessions[sessions.length - 1].date}.jpg`);
+    if (await buildCollage(imagePaths, collagePath)) {
+      await channel.send({ content: '🖼️ **This week in BeReals:**', files: [collagePath] });
+    }
+  } catch (err) {
+    console.error('Failed to build the weekly collage:', err);
+  }
 
   if (topPost && topPost.votes > 0) {
     const file = topPost.image_path && fs.existsSync(topPost.image_path) ? topPost.image_path : topPost.image_url;
@@ -406,7 +478,8 @@ function scheduleWeeklyRecap(): void {
 }
 
 function cleanupOldPhotos(): void {
-  const cutoff = Date.now() - 14 * 86400000;
+  // Keep photos long enough for Throwback Thursday (4 weeks back).
+  const cutoff = Date.now() - 60 * 86400000;
   try {
     for (const name of fs.readdirSync(db.photosDir)) {
       const p = path.join(db.photosDir, name);
@@ -493,6 +566,10 @@ client.on('messageCreate', async (message) => {
         if (saved) db.setRevealMessageId(saved.id, msg.id);
         if (votingMinutes > 0 && !session.voting_closed) {
           await msg.react(VOTE_EMOJI);
+        }
+        const count = db.getPostCount(message.author.id);
+        if (hitMilestone(count, POST_MILESTONES)) {
+          await channel.send(`🎉 📸 **${message.author.username}** just posted their **${count}th BeReal**!`);
         }
         reposted = true;
       } catch (err) {
@@ -597,6 +674,53 @@ client.on('interactionCreate', async (interaction) => {
       .map((row, i) => `${i + 1}. **${row.username}** — 🏆 ${row.wins}`)
       .join('\n');
     await interaction.reply(`**Photo of the Day Wins**\n${lines}`);
+  }
+
+  if (interaction.commandName === 'me') {
+    const userId = interaction.user.id;
+    const row = db.getStreak(userId);
+    const history = db.getUserPostHistory(userId);
+    if (!row && history.length === 0) {
+      await interaction.reply({
+        content: "No stats yet — post your first BeReal and come back!",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const total = history.length;
+    const onTime = history.filter((h) => !h.is_late).length;
+    const pct = total > 0 ? Math.round((onTime / total) * 100) : 0;
+
+    // This month at a glance: one symbol per day that had a session.
+    const today = todayDateString();
+    const month = today.slice(0, 7);
+    const dayOfMonth = Number(today.slice(8, 10));
+    const sessionDates = new Set(db.getSessionsSince(`${month}-01`).map((s) => s.date));
+    const lateByDate = new Map(history.map((h) => [h.date, h.is_late]));
+    let calendar = '';
+    for (let d = 1; d <= dayOfMonth; d++) {
+      const date = `${month}-${String(d).padStart(2, '0')}`;
+      if (!sessionDates.has(date)) calendar += '·';
+      else if (!lateByDate.has(date)) calendar += '❌';
+      else calendar += lateByDate.get(date) ? '🐢' : '✅';
+    }
+
+    const lines = [
+      `🔥 **Streak:** ${row?.current_streak ?? 0} (best: ${row?.longest_streak ?? 0})`,
+      `🧊 **Freezes banked:** ${row?.freezes ?? 0}`,
+      `🏆 **Photo-of-the-day wins:** ${row?.wins ?? 0}`,
+      `📸 **Posts:** ${total} total, ${pct}% on time`,
+      `📅 **This month:** ${calendar || '—'}`,
+    ];
+    if (row?.vacation) lines.push('🏖️ Vacation mode is on');
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${interaction.user.username}'s BeReal stats`)
+      .setDescription(lines.join('\n'))
+      .setColor(0xfffb00);
+
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
   }
 
   if (interaction.commandName === 'vacation') {
