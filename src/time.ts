@@ -24,3 +24,8 @@ export function dateStringDaysBefore(days: number, from: string): string {
   const d = new Date(`${from}T12:00:00Z`);
   return new Date(d.getTime() - days * 86400000).toISOString().slice(0, 10);
 }
+
+// Day of week for a YYYY-MM-DD date string: 0 = Sunday … 6 = Saturday.
+export function weekdayOf(date: string): number {
+  return new Date(`${date}T12:00:00Z`).getUTCDay();
+}

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tzNow, dateStringDaysBefore } from '../src/time';
+import { tzNow, dateStringDaysBefore, weekdayOf } from '../src/time';
 
 test('tzNow reports the date and time in the requested timezone', () => {
   // 2026-07-02T01:30 UTC is still 2026-07-01 20:30 in Chicago (CDT, UTC-5).
@@ -31,4 +31,14 @@ test('dateStringDaysBefore crosses month and year boundaries', () => {
 
 test('dateStringDaysBefore crosses a leap day', () => {
   assert.equal(dateStringDaysBefore(1, '2028-03-01'), '2028-02-29');
+});
+
+test('weekdayOf identifies days of the week', () => {
+  assert.equal(weekdayOf('2026-07-12'), 0); // Sunday
+  assert.equal(weekdayOf('2026-07-16'), 4); // Thursday
+  assert.equal(weekdayOf('2026-07-18'), 6); // Saturday
+});
+
+test('four weeks before a Thursday is also a Thursday', () => {
+  assert.equal(weekdayOf(dateStringDaysBefore(28, '2026-07-16')), 4);
 });

@@ -103,6 +103,16 @@ test('getSessionsSince and getPostsForSessionIds cover the recap window', () => 
   assert.equal(db.getPostsForSessionIds([]).length, 0);
 });
 
+test('getPostCount and getUserPostHistory report per-user activity', () => {
+  // u1 posted in the 2026-07-02 session (on time) and the 2026-06-20 session.
+  assert.equal(db.getPostCount('u1'), 2);
+  assert.equal(db.getPostCount('ghost'), 0);
+
+  const history = db.getUserPostHistory('u1');
+  assert.deepEqual(history.map((h) => h.date), ['2026-06-20', '2026-07-02']);
+  assert.equal(db.getUserPostHistory('ghost').length, 0);
+});
+
 test('toggleVacation flips state and creates a row for unseen users', () => {
   assert.equal(db.toggleVacation('u9', 'zoe'), true);
   assert.equal(db.getStreak('u9')!.vacation, 1);

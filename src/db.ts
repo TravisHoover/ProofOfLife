@@ -161,6 +161,23 @@ export function addPost(
   return result.changes > 0;
 }
 
+export function getPostCount(userId: string): number {
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM posts WHERE user_id = ?`).get(userId) as { n: number };
+  return row.n;
+}
+
+// Every post by a user with the session date it belongs to, oldest first.
+export function getUserPostHistory(userId: string): { date: string; is_late: number }[] {
+  return db
+    .prepare(`
+      SELECT s.date AS date, p.is_late AS is_late
+      FROM posts p JOIN sessions s ON s.id = p.session_id
+      WHERE p.user_id = ?
+      ORDER BY s.date ASC
+    `)
+    .all(userId) as { date: string; is_late: number }[];
+}
+
 export function getPost(sessionId: number, userId: string): Post | undefined {
   return db
     .prepare(`SELECT * FROM posts WHERE session_id = ? AND user_id = ?`)
