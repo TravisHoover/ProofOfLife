@@ -36,6 +36,9 @@ legacy.exec(`
     last_post_date TEXT
   );
   INSERT INTO streaks VALUES ('u1', 'alice', 5, 9, '2026-06-30');
+  INSERT INTO sessions (date, ping_time, deadline) VALUES ('2026-06-30', 'p', 'd');
+  INSERT INTO posts (session_id, user_id, username, image_url, posted_at, is_late)
+    VALUES (1, 'u1', 'alice', 'http://legacy', 't', 0);
 `);
 legacy.close();
 
@@ -50,6 +53,15 @@ test('a v1 database migrates in place and keeps existing rows', () => {
   assert.equal(row.freezes, 0);
   assert.equal(row.vacation, 0);
   assert.equal(row.wins, 0);
+});
+
+test('a pre-multi-image post is backfilled into post_images', () => {
+  const post = db.getPost(1, 'u1')!;
+  assert.equal(post.image_url, 'http://legacy');
+  const images = db.getImagesForPost(post.id);
+  assert.equal(images.length, 1);
+  assert.equal(images[0].image_url, 'http://legacy');
+  assert.equal(images[0].position, 0);
 });
 
 test('sessions round-trip through the new columns', () => {
@@ -71,8 +83,9 @@ test('sessions round-trip through the new columns', () => {
 
 test('posts store captions and image paths, and duplicates are ignored', () => {
   const id = db.createSession('2026-07-02', 'ping', 'deadline');
-  assert.equal(db.addPost(id, 'u1', 'alice', 'http://x', 't1', false, 'my caption', '/tmp/a.png'), true);
-  assert.equal(db.addPost(id, 'u1', 'alice', 'http://x2', 't2', true, null, null), false);
+  const postId = db.addPost(id, 'u1', 'alice', [{ url: 'http://x', path: '/tmp/a.png' }], 't1', false, 'my caption');
+  assert.notEqual(postId, null);
+  assert.equal(db.addPost(id, 'u1', 'alice', [{ url: 'http://x2', path: null }], 't2', true, null), null);
   assert.equal(db.hasPosted(id, 'u1'), true);
   assert.equal(db.hasPosted(id, 'u2'), false);
 
@@ -92,9 +105,39 @@ test('posts store captions and image paths, and duplicates are ignored', () => {
   assert.equal(db.getPost(id, 'nobody'), undefined);
 });
 
+test('addPost stores every image in order and getImagesForPost returns them all', () => {
+  const id = db.createSession('2026-05-01', 'ping', 'deadline');
+  const postId = db.addPost(
+    id,
+    'u2',
+    'bob',
+    [
+      { url: 'http://a', path: '/tmp/a.png' },
+      { url: 'http://b', path: null },
+      { url: 'http://c', path: '/tmp/c.png' },
+    ],
+    't1',
+    false,
+    null,
+  )!;
+
+  const images = db.getImagesForPost(postId);
+  assert.equal(images.length, 3);
+  assert.deepEqual(images.map((i) => i.image_url), ['http://a', 'http://b', 'http://c']);
+  assert.deepEqual(images.map((i) => i.image_path), ['/tmp/a.png', null, '/tmp/c.png']);
+  assert.deepEqual(images.map((i) => i.position), [0, 1, 2]);
+
+  // The posts row itself carries the first image as the "primary" one.
+  const post = db.getPost(id, 'u2')!;
+  assert.equal(post.image_url, 'http://a');
+  assert.equal(post.image_path, '/tmp/a.png');
+
+  assert.equal(db.getImagesForPost(-1).length, 0);
+});
+
 test('getSessionsSince and getPostsForSessionIds cover the recap window', () => {
   const old = db.createSession('2026-06-20', 'ping', 'deadline');
-  db.addPost(old, 'u1', 'alice', 'http://old', 't', false, null, null);
+  db.addPost(old, 'u1', 'alice', [{ url: 'http://old', path: null }], 't', false, null);
   const recent = db.getSessionsSince('2026-07-01');
   assert.deepEqual(recent.map((s) => s.date), ['2026-07-01', '2026-07-02']);
 
@@ -104,12 +147,13 @@ test('getSessionsSince and getPostsForSessionIds cover the recap window', () => 
 });
 
 test('getPostCount and getUserPostHistory report per-user activity', () => {
-  // u1 posted in the 2026-07-02 session (on time) and the 2026-06-20 session.
-  assert.equal(db.getPostCount('u1'), 2);
+  // u1 posted in the legacy-backfill 2026-06-30 session, the 2026-06-20
+  // session, and the 2026-07-02 session.
+  assert.equal(db.getPostCount('u1'), 3);
   assert.equal(db.getPostCount('ghost'), 0);
 
   const history = db.getUserPostHistory('u1');
-  assert.deepEqual(history.map((h) => h.date), ['2026-06-20', '2026-07-02']);
+  assert.deepEqual(history.map((h) => h.date), ['2026-06-20', '2026-06-30', '2026-07-02']);
   assert.equal(db.getUserPostHistory('ghost').length, 0);
 });
 

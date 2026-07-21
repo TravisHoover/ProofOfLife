@@ -46,6 +46,15 @@ db.exec(`
     longest_streak INTEGER NOT NULL DEFAULT 0,
     last_post_date TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS post_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id INTEGER NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    image_url TEXT NOT NULL,
+    image_path TEXT,
+    FOREIGN KEY (post_id) REFERENCES posts(id)
+  );
 `);
 
 // Additive migrations so existing databases (e.g. on a Railway volume) upgrade in place.
@@ -66,6 +75,15 @@ ensureColumn('posts', 'votes', 'votes INTEGER NOT NULL DEFAULT 0');
 ensureColumn('streaks', 'freezes', 'freezes INTEGER NOT NULL DEFAULT 0');
 ensureColumn('streaks', 'vacation', 'vacation INTEGER NOT NULL DEFAULT 0');
 ensureColumn('streaks', 'wins', 'wins INTEGER NOT NULL DEFAULT 0');
+
+// Posts predating multi-image support only have their image on the posts row
+// itself. Backfill a post_images row for any post that doesn't have one yet
+// (idempotent — safe to run on every startup).
+db.exec(`
+  INSERT INTO post_images (post_id, position, image_url, image_path)
+  SELECT id, 0, image_url, image_path FROM posts
+  WHERE id NOT IN (SELECT post_id FROM post_images)
+`);
 
 export interface Session {
   id: number;
@@ -91,6 +109,14 @@ export interface Post {
   image_path: string | null;
   reveal_message_id: string | null;
   votes: number;
+}
+
+export interface PostImage {
+  id: number;
+  post_id: number;
+  position: number;
+  image_url: string;
+  image_path: string | null;
 }
 
 export interface Streak {
@@ -142,23 +168,50 @@ export function markVotingClosed(sessionId: number): void {
   db.prepare(`UPDATE sessions SET voting_closed = 1 WHERE id = ?`).run(sessionId);
 }
 
+// images must be non-empty; the first is stored on the posts row itself too
+// (kept as a "primary" image for simple single-image consumers), and all of
+// them are stored in post_images for consumers that need the full set.
+// Returns the new post's id, or null if this user already posted this
+// session (the UNIQUE(session_id, user_id) constraint rejected the insert).
 export function addPost(
   sessionId: number,
   userId: string,
   username: string,
-  imageUrl: string,
+  images: { url: string; path: string | null }[],
   postedAt: string,
   isLate: boolean,
   caption: string | null,
-  imagePath: string | null,
-): boolean {
+): number | null {
+  const primary = images[0];
   const stmt = db.prepare(`
     INSERT INTO posts (session_id, user_id, username, image_url, posted_at, is_late, caption, image_path)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id, user_id) DO NOTHING
   `);
-  const result = stmt.run(sessionId, userId, username, imageUrl, postedAt, isLate ? 1 : 0, caption, imagePath);
-  return result.changes > 0;
+  const result = stmt.run(
+    sessionId,
+    userId,
+    username,
+    primary.url,
+    postedAt,
+    isLate ? 1 : 0,
+    caption,
+    primary.path,
+  );
+  if (result.changes === 0) return null;
+
+  const postId = result.lastInsertRowid as number;
+  const imgStmt = db.prepare(
+    `INSERT INTO post_images (post_id, position, image_url, image_path) VALUES (?, ?, ?, ?)`,
+  );
+  images.forEach((img, i) => imgStmt.run(postId, i, img.url, img.path));
+  return postId;
+}
+
+export function getImagesForPost(postId: number): PostImage[] {
+  return db
+    .prepare(`SELECT * FROM post_images WHERE post_id = ? ORDER BY position ASC`)
+    .all(postId) as PostImage[];
 }
 
 export function getPostCount(userId: string): number {

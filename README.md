@@ -8,8 +8,9 @@ hidden until the deadline, then everything reveals at once. Tracks streaks too.
 
 - Once a day, at a random time within a window you configure, the bot pings your chosen channel asking
   for a photo (`@everyone`, or a specific role if you set `BEREAL_ROLE_ID`).
-- Friends just attach an image to any message in that channel — no slash command needed. Any text sent
-  with the photo becomes its caption.
+- Friends just attach one or more images to a message in that channel — no slash command needed. Attach
+  several at once and they all count as a single post together (up to Discord's 10-files-per-message
+  limit). Any text sent along with them becomes their caption.
 - Photos are **actually hidden**: the bot saves a copy, deletes the original message, and posts a
   "so-and-so is in!" note instead. Nobody sees anyone's photo until the reveal.
 - Fifteen minutes before the deadline (configurable), the bot reminds whoever hasn't posted yet.
