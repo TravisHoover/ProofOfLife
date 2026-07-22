@@ -78,6 +78,15 @@ async function fetchChannel(): Promise<TextChannel | null> {
   }
 }
 
+// Every image attached to a post, as file inputs for a Discord message send —
+// the saved copy on disk when we have one, else falling back to the original
+// CDN URL (which only works if that message hasn't been deleted).
+function imageFiles(postId: number): string[] {
+  return db
+    .getImagesForPost(postId)
+    .map((img) => (img.image_path && fs.existsSync(img.image_path) ? img.image_path : img.image_url));
+}
+
 // Returns the user IDs expected to post today (non-bot members of the roster
 // role, minus anyone on vacation), or null when no roster role is configured.
 async function getActiveParticipantIds(guild: Guild): Promise<string[] | null> {
@@ -115,7 +124,7 @@ async function sendPing(): Promise<void> {
     .setTitle('📸 Time to post your BeReal!')
     .setDescription(
       `Post a photo in this channel within **${POST_TIME_LIMIT_MINUTES} minutes** to be on time.\n` +
-      `Just attach an image to a message right here — no command needed. Add text with your photo to caption it.\n\n` +
+      `Just attach one or more images to a message right here — no command needed. Add text with your photo(s) to caption them.\n\n` +
       `Posts stay hidden until everyone's in (or time runs out), then they all reveal at once.`
     )
     .setColor(0xfffb00)
@@ -220,17 +229,17 @@ async function revealSession(sessionId: number, channel: TextChannel): Promise<v
   for (const post of posts) {
     const tag = post.is_late ? ' (late)' : '';
     const caption = post.caption ? `\n> ${post.caption.slice(0, 1500)}` : '';
-    const file = post.image_path && fs.existsSync(post.image_path) ? post.image_path : post.image_url;
+    const files = imageFiles(post.id);
     try {
       const msg = await channel.send({
         content: `**${post.username}${tag}**${caption}`,
-        files: [file],
+        files,
         // Captions are user text — never let them ping anyone.
         allowedMentions: { parse: [] },
       });
       db.setRevealMessageId(post.id, msg.id);
     } catch (err) {
-      console.error(`Failed to post ${post.username}'s photo:`, err);
+      console.error(`Failed to post ${post.username}'s photo(s):`, err);
     }
   }
 
@@ -295,7 +304,7 @@ async function maybeSendThrowback(channel: TextChannel, date: string): Promise<v
     try {
       await channel.send({
         content: `**${post.username}**${caption}`,
-        files: [post.image_path!],
+        files: imageFiles(post.id),
         allowedMentions: { parse: [] },
       });
     } catch (err) {
@@ -414,17 +423,21 @@ async function sendWeeklyRecap(): Promise<void> {
     // anyone but the bot) their reveal messages collected.
     const candidates: { path: string; score: number }[] = [];
     for (const post of posts) {
-      if (!post.image_path || !fs.existsSync(post.image_path)) continue;
       let score = 0;
       if (post.reveal_message_id) {
         try {
           const msg = await channel.messages.fetch(post.reveal_message_id);
           score = msg.reactions.cache.reduce((sum, r) => sum + r.count - (r.me ? 1 : 0), 0);
         } catch {
-          // Message gone or unreachable — keep the photo with a zero score.
+          // Message gone or unreachable — keep the photos with a zero score.
         }
       }
-      candidates.push({ path: post.image_path, score });
+      // Every photo in a multi-photo post shares that post's reaction score.
+      for (const img of db.getImagesForPost(post.id)) {
+        if (img.image_path && fs.existsSync(img.image_path)) {
+          candidates.push({ path: img.image_path, score });
+        }
+      }
     }
     const imagePaths = pickCollagePhotos(candidates);
     const collagePath = path.join(db.photosDir, `collage-${sessions[sessions.length - 1].date}.jpg`);
@@ -436,11 +449,10 @@ async function sendWeeklyRecap(): Promise<void> {
   }
 
   if (topPost && topPost.votes > 0) {
-    const file = topPost.image_path && fs.existsSync(topPost.image_path) ? topPost.image_path : topPost.image_url;
     try {
       await channel.send({
         content: `🖼️ **Photo of the week:** ${topPost.username} (${topPost.votes} vote${topPost.votes === 1 ? '' : 's'})`,
-        files: [file],
+        files: imageFiles(topPost.id),
       });
     } catch (err) {
       console.error('Failed to post photo of the week:', err);
@@ -512,6 +524,11 @@ const EXT_BY_TYPE: Record<string, string> = {
   'image/webp': '.webp',
 };
 
+// Discord caps regular (non-boosted) messages at 10 attachments, and we
+// re-upload every saved image in one message at reveal time, so a post can't
+// carry more images than that either.
+const MAX_IMAGES_PER_POST = 10;
+
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   if (message.channelId !== CHANNEL_ID) return;
@@ -520,8 +537,10 @@ client.on('messageCreate', async (message) => {
   const session: Session | undefined = db.getSessionByDate(todayDateString());
   if (!session) return;
 
-  const attachment = message.attachments.first();
-  if (!attachment || !attachment.contentType?.startsWith('image/')) return;
+  const imageAttachments = [...message.attachments.values()]
+    .filter((a) => a.contentType?.startsWith('image/'))
+    .slice(0, MAX_IMAGES_PER_POST);
+  if (imageAttachments.length === 0) return;
 
   if (db.hasPosted(session.id, message.author.id)) {
     await message.react('✅');
@@ -534,50 +553,56 @@ client.on('messageCreate', async (message) => {
   const isLate = session.revealed ? true : now > new Date(session.deadline);
   const caption = message.content.trim() || null;
 
-  // Download the image so it can stay hidden (the original message gets
-  // deleted, which kills its CDN link) and be re-uploaded at reveal time.
-  let imagePath: string | null = null;
-  try {
-    const ext = EXT_BY_TYPE[attachment.contentType] ?? '.jpg';
-    const res = await fetch(attachment.url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
-    imagePath = path.join(db.photosDir, `${session.id}-${message.author.id}${ext}`);
-    fs.writeFileSync(imagePath, buf);
-  } catch (err) {
-    console.error('Photo download failed, will fall back to the CDN URL:', err);
-    imagePath = null;
+  // Download every image so they can stay hidden (the original message gets
+  // deleted, which kills its CDN links) and be re-uploaded at reveal time.
+  const images: { url: string; path: string | null }[] = [];
+  for (let i = 0; i < imageAttachments.length; i++) {
+    const attachment = imageAttachments[i];
+    let imagePath: string | null = null;
+    try {
+      const ext = EXT_BY_TYPE[attachment.contentType ?? ''] ?? '.jpg';
+      const res = await fetch(attachment.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      imagePath = path.join(db.photosDir, `${session.id}-${message.author.id}-${i}${ext}`);
+      fs.writeFileSync(imagePath, buf);
+    } catch (err) {
+      console.error('Photo download failed, will fall back to the CDN URL:', err);
+      imagePath = null;
+    }
+    images.push({ url: attachment.url, path: imagePath });
   }
+  const hasAnyLocalCopy = images.some((img) => img.path);
 
-  db.addPost(
+  const postId = db.addPost(
     session.id,
     message.author.id,
     message.author.username,
-    attachment.url,
+    images,
     now.toISOString(),
     isLate,
     caption,
-    imagePath,
   );
 
   const channel = message.channel as TextChannel;
 
-  // After the reveal there's nothing to hide: repost the photo immediately,
-  // flagged as late. Streaks were already settled at reveal time (a missed
-  // day and a late post cost the same), so they're left untouched here.
+  // After the reveal there's nothing to hide: repost the photo(s)
+  // immediately, flagged as late. Streaks were already settled at reveal
+  // time (a missed day and a late post cost the same), so they're left
+  // untouched here.
   if (session.revealed) {
     let reposted = false;
-    if (imagePath) {
+    if (postId && hasAnyLocalCopy) {
       try {
         await message.delete();
+        const files = images.map((img) => (img.path && fs.existsSync(img.path) ? img.path : img.url));
         const capLine = caption ? `\n> ${caption.slice(0, 1500)}` : '';
         const msg = await channel.send({
           content: `**${message.author.username} (late)**${capLine}`,
-          files: [imagePath],
+          files,
           allowedMentions: { parse: [] },
         });
-        const saved = db.getPost(session.id, message.author.id);
-        if (saved) db.setRevealMessageId(saved.id, msg.id);
+        db.setRevealMessageId(postId, msg.id);
         if (votingMinutes > 0 && !session.voting_closed) {
           await msg.react(VOTE_EMOJI);
         }
@@ -587,16 +612,16 @@ client.on('messageCreate', async (message) => {
         }
         reposted = true;
       } catch (err) {
-        console.warn('Could not repost the late photo, leaving the original message:', err);
+        console.warn('Could not repost the late photo(s), leaving the original message:', err);
       }
     }
     if (!reposted) await message.react('🐢');
     return;
   }
 
-  // Hide the photo until the reveal. Only delete if we have our own copy.
+  // Hide the photo(s) until the reveal. Only delete if we have our own copy.
   let hidden = false;
-  if (imagePath) {
+  if (hasAnyLocalCopy) {
     try {
       await message.delete();
       hidden = true;
@@ -606,8 +631,9 @@ client.on('messageCreate', async (message) => {
   }
 
   if (hidden) {
+    const countNote = images.length > 1 ? ` (${images.length} photos)` : '';
     await channel.send(
-      `📸 **${message.author.username}** just posted their BeReal${isLate ? ' (late)' : ''} — hidden until the reveal!`
+      `📸 **${message.author.username}** just posted their BeReal${isLate ? ' (late)' : ''}${countNote} — hidden until the reveal!`
     );
   } else {
     await message.react(isLate ? '🐢' : '📸');
