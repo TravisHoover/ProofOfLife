@@ -87,18 +87,51 @@ function imageFiles(postId: number): string[] {
     .map((img) => (img.image_path && fs.existsSync(img.image_path) ? img.image_path : img.image_url));
 }
 
-// Returns the user IDs expected to post today (non-bot members of the roster
+interface Participant {
+  id: string;
+  username: string;
+}
+
+// Discord rate-limits fetching a guild's full member list (and a post that
+// triggers an early reveal fetches it twice in a row), so reuse the cache for
+// a few minutes — the GuildMembers intent keeps it current in between.
+const MEMBER_REFRESH_MS = 5 * 60000;
+let membersFetchedAt = 0;
+
+// Returns the users expected to post today (non-bot members of the roster
 // role, minus anyone on vacation), or null when no roster role is configured.
-async function getActiveParticipantIds(guild: Guild): Promise<string[] | null> {
+async function getActiveParticipants(guild: Guild): Promise<Participant[] | null> {
   if (!BEREAL_ROLE_ID) return null;
-  await guild.members.fetch();
+  if (Date.now() - membersFetchedAt > MEMBER_REFRESH_MS) {
+    await guild.members.fetch();
+    membersFetchedAt = Date.now();
+  }
   const role = guild.roles.cache.get(BEREAL_ROLE_ID);
   if (!role) {
     console.warn(`BEREAL_ROLE_ID ${BEREAL_ROLE_ID} not found in guild ${guild.id}.`);
     return null;
   }
-  const ids = [...role.members.filter((m) => !m.user.bot).keys()];
-  return ids.filter((id) => !db.getStreak(id)?.vacation);
+  return role.members
+    .filter((m) => !m.user.bot && !db.getStreak(m.id)?.vacation)
+    .map((m) => ({ id: m.id, username: m.user.username }));
+}
+
+// Who should have posted for the session on `date`: the roster role when one
+// is configured, otherwise anyone who's posted in the two weeks before it.
+// Vacationers are left out either way.
+async function getExpectedPosters(guild: Guild | null, date: string): Promise<Participant[]> {
+  if (guild) {
+    try {
+      const participants = await getActiveParticipants(guild);
+      if (participants) return participants;
+    } catch (err) {
+      console.error('Could not fetch the roster, falling back to recent posters:', err);
+    }
+  }
+  return db
+    .getRecentPosters(dateStringDaysBefore(14, date))
+    .filter((p) => !db.getStreak(p.user_id)?.vacation)
+    .map((p) => ({ id: p.user_id, username: p.username }));
 }
 
 // --- Daily ping -----------------------------------------------------------
@@ -171,11 +204,11 @@ function scheduleReminder(session: Session, channel: TextChannel): void {
       const postedIds = new Set(db.getPostsForSession(session.id).map((p) => p.user_id));
       let mentions = '';
       if (channel.guild) {
-        const participants = await getActiveParticipantIds(channel.guild);
+        const participants = await getActiveParticipants(channel.guild);
         if (participants) {
-          const missing = participants.filter((id) => !postedIds.has(id));
+          const missing = participants.filter((p) => !postedIds.has(p.id));
           if (missing.length === 0) return;
-          mentions = ' ' + missing.map((id) => `<@${id}>`).join(' ');
+          mentions = ' ' + missing.map((p) => `<@${p.id}>`).join(' ');
         }
       }
 
@@ -209,12 +242,19 @@ async function revealSession(sessionId: number, channel: TextChannel): Promise<v
     return;
   }
 
-  const onTime = posts.filter((p) => !p.is_late);
-  const late = posts.filter((p) => p.is_late);
+  // The reveal normally fires right at the deadline, so hardly anyone has
+  // posted late yet. Everyone expected who hasn't posted at all is late too:
+  // they can still post, and it'll land here flagged late.
+  const postedIds = new Set(posts.map((p) => p.user_id));
+  const notIn = (await getExpectedPosters(channel.guild ?? null, session.date)).filter(
+    (p) => !postedIds.has(p.id)
+  );
+  const onTime = posts.filter((p) => !p.is_late).map((p) => p.username);
+  const late = [...posts.filter((p) => p.is_late).map((p) => p.username), ...notIn.map((p) => p.username)];
 
   let description =
-    `**On time (${onTime.length}):** ${onTime.map((p) => p.username).join(', ') || 'none'}\n` +
-    `**Late (${late.length}):** ${late.map((p) => p.username).join(', ') || 'none'}`;
+    `**On time (${onTime.length}):** ${onTime.join(', ') || 'none'}\n` +
+    `**Late (${late.length}):** ${late.join(', ') || 'none'}`;
   if (frozen.length > 0) {
     description += `\n**🧊 Saved by a streak freeze:** ${frozen.join(', ')}`;
   }
@@ -223,6 +263,9 @@ async function revealSession(sessionId: number, channel: TextChannel): Promise<v
     .setTitle("⏰ Today's BeReal Reveal")
     .setDescription(description)
     .setColor(0x00d166);
+  if (notIn.length > 0) {
+    summary.setFooter({ text: "Haven't posted yet? Post anyway — it'll show up here flagged late." });
+  }
 
   await channel.send({ embeds: [summary] });
 
@@ -643,10 +686,10 @@ client.on('messageCreate', async (message) => {
   // don't make people wait out the timer.
   if (message.guild) {
     try {
-      const participants = await getActiveParticipantIds(message.guild);
+      const participants = await getActiveParticipants(message.guild);
       if (participants && participants.length > 0) {
         const postedIds = new Set(db.getPostsForSession(session.id).map((p) => p.user_id));
-        if (participants.every((id) => postedIds.has(id))) {
+        if (participants.every((p) => postedIds.has(p.id))) {
           await channel.send('🎉 Everyone posted — revealing early!');
           await revealSession(session.id, channel);
         }
