@@ -231,6 +231,23 @@ export function getUserPostHistory(userId: string): { date: string; is_late: num
     .all(userId) as { date: string; is_late: number }[];
 }
 
+// Everyone who's posted in a session dated on or after `sinceDate`, with the
+// username from their most recent post (SQLite fills bare columns from the
+// row MAX() picked).
+export function getRecentPosters(sinceDate: string): { user_id: string; username: string }[] {
+  return db
+    .prepare(`
+      SELECT user_id, username FROM (
+        SELECT p.user_id AS user_id, p.username AS username, MAX(p.posted_at)
+        FROM posts p JOIN sessions s ON s.id = p.session_id
+        WHERE s.date >= ?
+        GROUP BY p.user_id
+      )
+      ORDER BY username ASC
+    `)
+    .all(sinceDate) as { user_id: string; username: string }[];
+}
+
 export function getPost(sessionId: number, userId: string): Post | undefined {
   return db
     .prepare(`SELECT * FROM posts WHERE session_id = ? AND user_id = ?`)

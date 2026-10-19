@@ -157,6 +157,20 @@ test('getPostCount and getUserPostHistory report per-user activity', () => {
   assert.equal(db.getUserPostHistory('ghost').length, 0);
 });
 
+test('getRecentPosters lists each recent poster once with their latest username', () => {
+  // u1 (alice) posted on 2026-06-20, 2026-06-30 and 2026-07-02; u2 (bob)
+  // only on 2026-05-01.
+  const s = db.createSession('2026-07-03', 'ping', 'deadline');
+  db.addPost(s, 'u1', 'alice2', [{ url: 'http://new', path: null }], 'z', false, null);
+
+  assert.deepEqual(db.getRecentPosters('2026-06-25'), [{ user_id: 'u1', username: 'alice2' }]);
+  assert.deepEqual(
+    db.getRecentPosters('2026-01-01').map((p) => p.user_id).sort(),
+    ['u1', 'u2'],
+  );
+  assert.deepEqual(db.getRecentPosters('2026-08-01'), []);
+});
+
 test('toggleVacation flips state and creates a row for unseen users', () => {
   assert.equal(db.toggleVacation('u9', 'zoe'), true);
   assert.equal(db.getStreak('u9')!.vacation, 1);
